@@ -278,6 +278,9 @@ async def main():
     print("  /help - Справка")
     print("  /admin - Админ панель (ADMIN_ID только)")
     
+    # Delete any existing webhook to avoid conflict with long polling
+    await bot.delete_webhook(drop_pending_updates=True)
+    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
