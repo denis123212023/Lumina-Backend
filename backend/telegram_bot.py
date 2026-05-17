@@ -210,6 +210,26 @@ async def cmd_setrole(message: types.Message):
         await message.reply(f"❌ {msg}")
 
 
+@dp.message(Command("resethwid"))
+async def cmd_resethwid(message: types.Message):
+    """Reset user HWID"""
+    if message.from_user.id not in ADMIN_IDS:
+        await message.reply("❌ Доступ запрещен.")
+        return
+        
+    args = message.text.split()
+    if len(args) < 2:
+        await message.reply("Использование: `/resethwid [никнейм]`", parse_mode="Markdown")
+        return
+        
+    username = args[1]
+    success, msg = db_manager.reset_user_hwid(username)
+    if success:
+        await message.reply(f"✅ HWID для пользователя *{username}* успешно сброшен!", parse_mode="Markdown")
+    else:
+        await message.reply(f"❌ {msg}")
+
+
 @dp.message(Command("createkey"))
 async def cmd_createkey(message: types.Message, state: FSMContext):
     """Create key with specified days"""

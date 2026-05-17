@@ -236,4 +236,18 @@ class DBManager:
         except Exception:
             return False
 
+    def reset_user_hwid(self, username):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('UPDATE users SET hwid = NULL WHERE username = ?', (username,))
+            # Also reset in keys table if applicable
+            cursor.execute('UPDATE keys SET hwid = NULL WHERE user_id = (SELECT id FROM users WHERE username = ?)', (username,))
+            conn.commit()
+            success = cursor.rowcount > 0
+            conn.close()
+            return success, "HWID сброшен" if success else "Пользователь не найден"
+        except Exception as e:
+            return False, str(e)
+
 db_manager = DBManager()
