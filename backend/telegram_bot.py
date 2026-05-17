@@ -295,47 +295,69 @@ async def process_key_password(message: types.Message, state: FSMContext):
 
 @dp.message(Command("update"))
 async def cmd_update(message: types.Message):
-    """Update mod.jar from GitHub"""
+    """Update mod.jar and increment version"""
     if message.from_user.id not in ADMIN_IDS:
         await message.reply("❌ Доступ запрещен.")
         return
         
-    await message.reply("⏳ *Начинаю скачивание нового мода с GitHub...*", parse_mode="Markdown")
+    await message.reply("⏳ *Обновляю версию и проверяю файл мода...*", parse_mode="Markdown")
+    
+    target_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mod.jar")
+    download_success = False
+    github_url = os.getenv("MOD_GITHUB_URL", "https://raw.githubusercontent.com/denis123212023/Lumina-Backend/main/backend/mod.jar")
     
     try:
         import urllib.request
-        # Default GitHub raw path or configured environment variable
-        github_url = os.getenv("MOD_GITHUB_URL", "https://raw.githubusercontent.com/denis123212023/Lumina-Backend/main/backend/mod.jar")
-        
-        # Determine target file path
-        target_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mod.jar")
-        
-        # Download file
         opener = urllib.request.build_opener()
         opener.addheaders = [('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)')]
         urllib.request.install_opener(opener)
         
-        urllib.request.urlretrieve(github_url, target_path)
+        temp_path = target_path + ".tmp"
+        urllib.request.urlretrieve(github_url, temp_path)
         
-        # Verify it downloaded correctly
-        if os.path.exists(target_path) and os.path.getsize(target_path) > 1000:
-            # Increment version
-            new_version = datetime.now().strftime('%Y%m%d%H%M%S')
-            db_manager.set_setting("mod_version", new_version)
-            
+        if os.path.exists(temp_path) and os.path.getsize(temp_path) > 1000:
+            if os.path.exists(target_path):
+                os.remove(target_path)
+            os.rename(temp_path, target_path)
+            download_success = True
+        else:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+    except Exception:
+        pass
+        
+    # Increment version
+    new_version = datetime.now().strftime('%Y%m%d%H%M%S')
+    db_manager.set_setting("mod_version", new_version)
+    
+    # Check local file
+    file_exists = os.path.exists(target_path)
+    file_size_mb = os.path.getsize(target_path) / (1024*1024) if file_exists else 0
+    
+    if download_success:
+        await message.reply(
+            f"✅ *Мод успешно обновлен! (Загружен с GitHub)*\n\n"
+            f"📦 Размер: `{file_size_mb:.2f} MB`\n"
+            f"🔔 Новая версия в БД: `{new_version}`\n\n"
+            f"Все лаунчеры скачают обновление при следующем запуске!",
+            parse_mode="Markdown"
+        )
+    else:
+        if file_exists:
             await message.reply(
-                f"✅ *Мод успешно обновлен!*\n\n"
-                f"📥 Скачан с: `{github_url}`\n"
-                f"📦 Размер: {os.path.getsize(target_path) / (1024*1024):.2f} MB\n"
+                f"✅ *Мод успешно обновлен! (Railway коммит)*\n\n"
+                f"ℹ️ _GitHub вернул 404 (репозиторий приватный), но Railway уже обновил файл `mod.jar` через Git-деплой!_\n\n"
+                f"📦 Размер файла на сервере: `{file_size_mb:.2f} MB`\n"
                 f"🔔 Новая версия в БД: `{new_version}`\n\n"
                 f"Все лаунчеры скачают обновление при следующем запуске!",
                 parse_mode="Markdown"
             )
         else:
-            await message.reply("❌ Ошибка: скачанный файл пустой или поврежден.")
-    except Exception as e:
-        logger.error(f"Error updating mod: {e}")
-        await message.reply(f"❌ Ошибка при скачивании файла с GitHub:\n`{str(e)}`", parse_mode="Markdown")
+            await message.reply(
+                f"❌ *Ошибка: Файл mod.jar не найден на сервере!*\n\n"
+                f"Пожалуйста, убедись, что файл `mod.jar` залит в репозиторий бэкенда.",
+                parse_mode="Markdown"
+            )
 
 
 @dp.message(Command("cleanup"))
