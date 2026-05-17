@@ -157,6 +157,19 @@ class DBManager:
         except Exception:
             return False
 
+    def check_hwid_access(self, hwid):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('''SELECT COUNT(*) FROM keys 
+                              WHERE hwid = ? AND status = 'used' 
+                              AND (expires_at IS NULL OR expires_at > datetime('now'))''', (hwid,))
+            count = cursor.fetchone()[0]
+            conn.close()
+            return count > 0
+        except Exception:
+            return False
+
     def add_key(self, key_code, expires_at=None):
         try:
             conn = sqlite3.connect(self.db_path)

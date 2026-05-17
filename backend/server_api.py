@@ -1,5 +1,5 @@
 import os
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from server_db import db_manager
 
 app = Flask(__name__)
@@ -26,6 +26,22 @@ def activate():
 def check_access():
     data = request.json
     has_access = db_manager.check_user_access(data.get('user_id'), data.get('hwid'))
+    return jsonify({"success": has_access})
+
+@app.route('/api/download/mod', methods=['GET'])
+def download_mod():
+    mod_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mod.jar")
+    if os.path.exists(mod_path):
+        return send_file(mod_path, as_attachment=True)
+    return jsonify({"success": False, "message": "Mod not found on server"}), 404
+
+@app.route('/api/mod_verify', methods=['POST'])
+def mod_verify():
+    data = request.json
+    hwid = data.get('hwid')
+    if not hwid:
+        return jsonify({"success": False, "message": "Missing HWID"})
+    has_access = db_manager.check_hwid_access(hwid)
     return jsonify({"success": has_access})
 
 if __name__ == '__main__':
