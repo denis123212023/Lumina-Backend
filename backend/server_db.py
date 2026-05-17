@@ -214,4 +214,26 @@ class DBManager:
         except Exception as e:
             return False, str(e)
 
+    def get_setting(self, key, default=None):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('SELECT value FROM settings WHERE key = ?', (key,))
+            result = cursor.fetchone()
+            conn.close()
+            return result[0] if result else default
+        except Exception:
+            return default
+
+    def set_setting(self, key, value):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, str(value)))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception:
+            return False
+
 db_manager = DBManager()

@@ -46,7 +46,8 @@ def mod_verify():
     uid = 1
     if has_access:
         role, uid = db_manager.get_user_role_and_uid_by_hwid(hwid)
-    return jsonify({"success": has_access, "role": role, "uid": uid})
+    mod_version = db_manager.get_setting("mod_version", "1")
+    return jsonify({"success": has_access, "role": role, "uid": uid, "mod_version": mod_version})
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))

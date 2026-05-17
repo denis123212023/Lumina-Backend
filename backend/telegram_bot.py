@@ -293,6 +293,51 @@ async def process_key_password(message: types.Message, state: FSMContext):
         await message.answer(f"❌ {msg}")
 
 
+@dp.message(Command("update"))
+async def cmd_update(message: types.Message):
+    """Update mod.jar from GitHub"""
+    if message.from_user.id not in ADMIN_IDS:
+        await message.reply("❌ Доступ запрещен.")
+        return
+        
+    await message.reply("⏳ *Начинаю скачивание нового мода с GitHub...*", parse_mode="Markdown")
+    
+    try:
+        import urllib.request
+        # Default GitHub raw path or configured environment variable
+        github_url = os.getenv("MOD_GITHUB_URL", "https://raw.githubusercontent.com/denis123212023/Lumina-Backend/main/backend/mod.jar")
+        
+        # Determine target file path
+        target_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mod.jar")
+        
+        # Download file
+        opener = urllib.request.build_opener()
+        opener.addheaders = [('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)')]
+        urllib.request.install_opener(opener)
+        
+        urllib.request.urlretrieve(github_url, target_path)
+        
+        # Verify it downloaded correctly
+        if os.path.exists(target_path) and os.path.getsize(target_path) > 1000:
+            # Increment version
+            new_version = datetime.now().strftime('%Y%m%d%H%M%S')
+            db_manager.set_setting("mod_version", new_version)
+            
+            await message.reply(
+                f"✅ *Мод успешно обновлен!*\n\n"
+                f"📥 Скачан с: `{github_url}`\n"
+                f"📦 Размер: {os.path.getsize(target_path) / (1024*1024):.2f} MB\n"
+                f"🔔 Новая версия в БД: `{new_version}`\n\n"
+                f"Все лаунчеры скачают обновление при следующем запуске!",
+                parse_mode="Markdown"
+            )
+        else:
+            await message.reply("❌ Ошибка: скачанный файл пустой или поврежден.")
+    except Exception as e:
+        logger.error(f"Error updating mod: {e}")
+        await message.reply(f"❌ Ошибка при скачивании файла с GitHub:\n`{str(e)}`", parse_mode="Markdown")
+
+
 @dp.message(Command("cleanup"))
 async def cmd_cleanup(message: types.Message):
     """Clean up expired keys"""
