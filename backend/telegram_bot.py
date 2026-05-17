@@ -155,7 +155,7 @@ async def cmd_users(message: types.Message):
         conn = sqlite3.connect(db_manager.db_path)
         cursor = conn.cursor()
         
-        cursor.execute("SELECT username, created_at FROM users ORDER BY created_at DESC LIMIT 20")
+        cursor.execute("SELECT username, role, created_at FROM users ORDER BY created_at DESC LIMIT 20")
         users = cursor.fetchall()
         
         conn.close()
@@ -165,13 +165,49 @@ async def cmd_users(message: types.Message):
             return
         
         text = "👥 Пользователи (последние 20):\n\n"
-        for username, created in users:
-            text += f"• {username} - {created}\n"
+        for username, role, created in users:
+            text += f"• {username} [*{role}*] - {created}\n"
         
-        await message.reply(text)
+        await message.reply(text, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error listing users: {e}")
         await message.reply("❌ Ошибка.")
+
+@dp.message(Command("setrole"))
+async def cmd_setrole(message: types.Message):
+    """Set user role"""
+    if message.from_user.id not in ADMIN_IDS:
+        await message.reply("❌ Доступ запрещен.")
+        return
+        
+    args = message.text.split()
+    if len(args) < 3:
+        await message.reply("Использование: `/setrole [никнейм] [роль]`\n\nДоступные роли: `Developer`, `User`, `YT` (или `yt`, `dev`, `user`)", parse_mode="Markdown")
+        return
+        
+    username = args[1]
+    role_input = args[2].lower()
+    
+    role_map = {
+        "developer": "Developer",
+        "dev": "Developer",
+        "user": "User",
+        "yt": "YT",
+        "youtube": "YT",
+        "ютуб": "YT"
+    }
+    
+    if role_input not in role_map:
+        await message.reply("❌ Неверная роль. Выберите из: `Developer`, `User`, `YT`", parse_mode="Markdown")
+        return
+        
+    target_role = role_map[role_input]
+    
+    success, msg = db_manager.change_user_role(username, target_role)
+    if success:
+        await message.reply(f"✅ Успешно установлена роль *{target_role}* для пользователя `{username}`!", parse_mode="Markdown")
+    else:
+        await message.reply(f"❌ {msg}")
 
 
 @dp.message(Command("createkey"))

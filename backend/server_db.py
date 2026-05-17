@@ -27,9 +27,15 @@ class DBManager:
                 username TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
                 hwid TEXT,
+                role TEXT DEFAULT 'User',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'User'")
+        except sqlite3.OperationalError:
+            pass
         
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS keys (
@@ -180,6 +186,31 @@ class DBManager:
             return True, "Key added successfully"
         except sqlite3.IntegrityError:
             return False, "Key already exists"
+        except Exception as e:
+            return False, str(e)
+
+    def get_user_role_and_uid_by_hwid(self, hwid):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('SELECT role, id FROM users WHERE hwid = ?', (hwid,))
+            result = cursor.fetchone()
+            conn.close()
+            if result:
+                return result[0], result[1]
+            return "User", 1
+        except Exception:
+            return "User", 1
+
+    def change_user_role(self, username, role):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('UPDATE users SET role = ? WHERE username = ?', (role, username))
+            conn.commit()
+            success = cursor.rowcount > 0
+            conn.close()
+            return success, "Роль успешно обновлена" if success else "Пользователь не найден"
         except Exception as e:
             return False, str(e)
 
