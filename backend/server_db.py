@@ -15,6 +15,13 @@ class DBManager:
         cursor = conn.cursor()
         
         cursor.execute('''
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        ''')
+        
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
@@ -41,6 +48,32 @@ class DBManager:
 
     def hash_password(self, password: str) -> str:
         return hashlib.sha256(password.encode()).hexdigest()
+
+    def set_admin_password(self, password: str):
+        pwd_hash = self.hash_password(password)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ('admin_password', pwd_hash))
+        conn.commit()
+        conn.close()
+
+    def check_admin_password(self, password: str) -> bool:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT value FROM settings WHERE key = ?', ('admin_password',))
+        result = cursor.fetchone()
+        conn.close()
+        if not result:
+            return False
+        return self.hash_password(password) == result[0]
+        
+    def has_admin_password(self) -> bool:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT value FROM settings WHERE key = ?', ('admin_password',))
+        result = cursor.fetchone()
+        conn.close()
+        return bool(result)
 
     def create_user(self, username, password, hwid):
         try:

@@ -14,6 +14,12 @@ from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.filters import Command
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
+
+class AdminStates(StatesGroup):
+    setup_password = State()
+    waiting_for_password = State()
 
 # Import from server DB
 import sys
@@ -23,7 +29,7 @@ from server_db import db_manager
 # Configuration
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "7423482417:AAGdwZcgK-LSDSN13rxpFoiJxVz72h6tJxo")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "5606191133"))
+ADMIN_IDS = [int(x.strip()) for x in os.getenv("ADMIN_IDS", "5606191133,5273874070").split(',')]
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -70,10 +76,15 @@ async def cmd_help(message: types.Message):
 
 
 @dp.message(Command("admin"))
-async def cmd_admin(message: types.Message):
+async def cmd_admin(message: types.Message, state: FSMContext):
     """Admin panel"""
-    if message.from_user.id != ADMIN_ID:
+    if message.from_user.id not in ADMIN_IDS:
         await message.reply("❌ Доступ запрещен. Эта команда только для администратора.")
+        return
+        
+    if not db_manager.has_admin_password():
+        await message.reply("⚠️ Админ-пароль не установлен!\n\nПожалуйста, отправьте пароль, который будет использоваться для защиты создания ключей. Сообщение с паролем будет автоматически удалено.")
+        await state.set_state(AdminStates.setup_password)
         return
     
     markup = types.InlineKeyboardMarkup(inline_keyboard=[
@@ -97,7 +108,7 @@ async def cmd_admin(message: types.Message):
 @dp.message(Command("stats"))
 async def cmd_stats(message: types.Message):
     """Show statistics"""
-    if message.from_user.id != ADMIN_ID:
+    if message.from_user.id not in ADMIN_IDS:
         await message.reply("❌ Доступ запрещен.")
         return
     
@@ -135,7 +146,7 @@ async def cmd_stats(message: types.Message):
 @dp.message(Command("users"))
 async def cmd_users(message: types.Message):
     """List users"""
-    if message.from_user.id != ADMIN_ID:
+    if message.from_user.id not in ADMIN_IDS:
         await message.reply("❌ Доступ запрещен.")
         return
     
@@ -164,10 +175,15 @@ async def cmd_users(message: types.Message):
 
 
 @dp.message(Command("createkey"))
-async def cmd_createkey(message: types.Message):
+async def cmd_createkey(message: types.Message, state: FSMContext):
     """Create key with specified days"""
-    if message.from_user.id != ADMIN_ID:
+    if message.from_user.id not in ADMIN_IDS:
         await message.reply("❌ Доступ запрещен.")
+        return
+        
+    if not db_manager.has_admin_password():
+        await message.reply("⚠️ Админ-пароль не установлен!\n\nПожалуйста, отправьте пароль.")
+        await state.set_state(AdminStates.setup_password)
         return
     
     args = message.text.split()
@@ -177,33 +193,74 @@ async def cmd_createkey(message: types.Message):
     
     try:
         days = int(args[1])
-        
-        key = f"LUMINA-ADMIN-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:12].upper()}"
-        expiry = datetime.now() + timedelta(days=days)
-        
-        success, msg = db_manager.add_key(key, expires_at=expiry.isoformat())
-        
-        if success:
-            await message.reply(
-                f"✅ Ключ создан:\n\n"
-                f"`{key}`\n\n"
-                f"⏰ Срок: {days} дней\n"
-                f"📅 Истекает: {expiry.strftime('%d.%m.%Y %H:%M')}",
-                parse_mode="Markdown"
-            )
-        else:
-            await message.reply(f"❌ {msg}")
+        await state.update_data(days=days)
+        await message.reply("🔒 Введите админ-пароль для подтверждения создания ключа:")
+        await state.set_state(AdminStates.waiting_for_password)
     except ValueError:
         await message.reply("❌ Неверный формат. Укажите количество дней числом.")
     except Exception as e:
         logger.error(f"Error: {e}")
         await message.reply("❌ Ошибка.")
 
+@dp.message(AdminStates.setup_password)
+async def process_setup_password(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+        
+    # Delete password message for safety
+    try:
+        await message.delete()
+    except Exception:
+        pass
+        
+    password = message.text.strip()
+    db_manager.set_admin_password(password)
+    await state.clear()
+    await message.answer("✅ Админ-пароль успешно установлен и сохранен в базе данных! Теперь вы можете использовать панель администратора /admin.")
+
+@dp.message(AdminStates.waiting_for_password)
+async def process_key_password(message: types.Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+        
+    # Delete password message for safety
+    try:
+        await message.delete()
+    except Exception:
+        pass
+        
+    password = message.text.strip()
+    if not db_manager.check_admin_password(password):
+        await message.answer("❌ Неверный админ-пароль! Создание ключа отменено.")
+        await state.clear()
+        return
+        
+    data = await state.get_data()
+    days = data.get('days', 30)
+    await state.clear()
+    
+    # Generate key
+    key = f"LUMINA-ADMIN-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:12].upper()}"
+    expiry = datetime.now() + timedelta(days=days)
+    
+    success, msg = db_manager.add_key(key, expires_at=expiry.isoformat())
+    
+    if success:
+        await message.answer(
+            f"✅ Ключ создан:\n\n"
+            f"`{key}`\n\n"
+            f"⏰ Срок: {days} дней\n"
+            f"📅 Истекает: {expiry.strftime('%d.%m.%Y %H:%M')}",
+            parse_mode="Markdown"
+        )
+    else:
+        await message.answer(f"❌ {msg}")
+
 
 @dp.message(Command("cleanup"))
 async def cmd_cleanup(message: types.Message):
     """Clean up expired keys"""
-    if message.from_user.id != ADMIN_ID:
+    if message.from_user.id not in ADMIN_IDS:
         await message.reply("❌ Доступ запрещен.")
         return
     
@@ -240,7 +297,7 @@ async def copy_key_callback(query: types.CallbackQuery):
 @dp.callback_query(F.data.startswith("admin_"))
 async def admin_callback(query: types.CallbackQuery):
     """Admin panel callbacks"""
-    if query.from_user.id != ADMIN_ID:
+    if query.from_user.id not in ADMIN_IDS:
         await query.answer("Доступ запрещен", show_alert=True)
         return
     
@@ -276,7 +333,7 @@ async def main():
     print("Доступные команды:")
     print("  /start - Начать")
     print("  /help - Справка")
-    print("  /admin - Админ панель (ADMIN_ID только)")
+    print("  /admin - Админ панель (только для ADMIN_IDS)")
     
     # Delete any existing webhook to avoid conflict with long polling
     await bot.delete_webhook(drop_pending_updates=True)
