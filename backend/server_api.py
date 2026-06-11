@@ -1,8 +1,60 @@
 import os
+import time
 from flask import Flask, request, jsonify, send_file
 from server_db import db_manager
 
 app = Flask(__name__)
+
+# ── Globals — активные пользователи LuminaBETA ──────────────────────────────
+# { "PlayerName": last_seen_timestamp }
+_globals_players: dict[str, float] = {}
+_GLOBALS_TTL = 90.0  # секунды — если игрок не пингует дольше, он считается оффлайн
+
+
+def _cleanup_globals():
+    now = time.time()
+    dead = [n for n, ts in _globals_players.items() if now - ts > _GLOBALS_TTL]
+    for n in dead:
+        del _globals_players[n]
+
+
+@app.route('/addPlayer', methods=['POST', 'GET'])
+def globals_add():
+    name = request.args.get('name') or (request.json or {}).get('name', '')
+    name = (name or '').strip()
+    if not name:
+        return jsonify({"success": False, "message": "name required"}), 400
+    _globals_players[name.lower()] = time.time()
+    return jsonify({"success": True})
+
+
+@app.route('/removePlayer', methods=['DELETE', 'POST', 'GET'])
+def globals_remove():
+    name = request.args.get('name') or (request.json or {}).get('name', '')
+    name = (name or '').strip()
+    if not name:
+        return jsonify({"success": False, "message": "name required"}), 400
+    _globals_players.pop(name.lower(), None)
+    return jsonify({"success": True})
+
+
+@app.route('/isClientUser', methods=['GET', 'POST'])
+def globals_check():
+    name = request.args.get('name') or request.args.get('player') or \
+           request.args.get('nickname') or request.args.get('username') or \
+           (request.json or {}).get('name', '')
+    name = (name or '').strip()
+    if not name:
+        return jsonify(False)
+    _cleanup_globals()
+    return jsonify(name.lower() in _globals_players)
+
+
+@app.route('/players', methods=['GET'])
+def globals_list():
+    _cleanup_globals()
+    return jsonify(list(_globals_players.keys()))
+# ─────────────────────────────────────────────────────────────────────────────
 
 @app.route('/api/register', methods=['POST'])
 def register():
