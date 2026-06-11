@@ -1,9 +1,64 @@
 import os
 import time
+import secrets
 from flask import Flask, request, jsonify, send_file
 from server_db import db_manager
 
 app = Flask(__name__)
+
+# ── Launch tokens (одноразовые токены запуска) ───────────────────────────────
+# { token: { "hwid": ..., "expires": timestamp } }
+_launch_tokens: dict[str, dict] = {}
+_TOKEN_TTL = 120.0  # 2 минуты на использование
+
+
+def _cleanup_tokens():
+    now = time.time()
+    dead = [t for t, v in _launch_tokens.items() if now > v["expires"]]
+    for t in dead:
+        del _launch_tokens[t]
+
+
+@app.route('/api/launch/token', methods=['POST'])
+def issue_launch_token():
+    """Лаунчер запрашивает одноразовый токен перед запуском Minecraft."""
+    data = request.json or {}
+    hwid = (data.get('hwid') or '').strip()
+    if not hwid:
+        return jsonify({"success": False, "message": "hwid required"}), 400
+
+    # Проверяем что у пользователя есть доступ
+    if not db_manager.check_hwid_access(hwid):
+        return jsonify({"success": False, "message": "No access"}), 403
+
+    _cleanup_tokens()
+    token = secrets.token_hex(32)
+    _launch_tokens[token] = {"hwid": hwid, "expires": time.time() + _TOKEN_TTL}
+    return jsonify({"success": True, "token": token})
+
+
+@app.route('/api/launch/verify', methods=['POST'])
+def verify_launch_token():
+    """Мод проверяет токен при старте. Токен одноразовый — удаляется после проверки."""
+    data = request.json or {}
+    token = (data.get('token') or '').strip()
+    hwid  = (data.get('hwid')  or '').strip()
+
+    if not token or not hwid:
+        return jsonify({"valid": False}), 400
+
+    _cleanup_tokens()
+    entry = _launch_tokens.get(token)
+    if not entry:
+        return jsonify({"valid": False})
+
+    if entry["hwid"] != hwid:
+        return jsonify({"valid": False})
+
+    # Одноразовый — удаляем
+    del _launch_tokens[token]
+    return jsonify({"valid": True})
+# ─────────────────────────────────────────────────────────────────────────────
 
 # ── Globals — активные пользователи LuminaBETA ──────────────────────────────
 # { "PlayerName": last_seen_timestamp }
