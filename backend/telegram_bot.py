@@ -20,7 +20,6 @@ from aiogram.fsm.context import FSMContext
 class AdminStates(StatesGroup):
     setup_password = State()
     waiting_for_password = State()
-    waiting_for_mod_file = State()  # ждём файл мода после /update
 
 # Import from server DB
 import sys
@@ -315,69 +314,55 @@ async def process_key_password(message: types.Message, state: FSMContext):
 
 
 @dp.message(Command("update"))
+@dp.message(Command("update"))
 async def cmd_update(message: types.Message, state: FSMContext):
-    """Ask admin to upload new mod.jar file"""
+    """Update mod.jar by downloading from a direct URL"""
     if message.from_user.id not in ADMIN_IDS:
         await message.reply("❌ Доступ запрещен.")
         return
 
-    await state.set_state(AdminStates.waiting_for_mod_file)
-    await message.reply(
-        "📦 *Обновление мода*\n\n"
-        "Отправь файл `mod.jar` следующим сообщением.\n"
-        "Он будет сохранён на сервере и все лаунчеры получат обновление при следующем запуске.\n\n"
-        "Для отмены напиши /cancel",
-        parse_mode="Markdown"
-    )
+    args = message.text.strip().split(maxsplit=1)
 
-
-@dp.message(AdminStates.waiting_for_mod_file)
-async def handle_mod_file(message: types.Message, state: FSMContext):
-    """Receive the mod.jar file and save it"""
-    if message.from_user.id not in ADMIN_IDS:
-        return
-
-    # Отмена
-    if message.text and message.text.strip().lower() in ("/cancel", "отмена"):
-        await state.clear()
-        await message.reply("❌ Обновление отменено.")
-        return
-
-    # Проверяем что прислали документ
-    if not message.document:
+    # Если ссылка не передана — объяснить как пользоваться
+    if len(args) < 2 or not args[1].startswith("http"):
         await message.reply(
-            "⚠️ Пришли именно *файл* (не фото, не текст).\n"
-            "Скинь `mod.jar` как документ, или /cancel для отмены.",
+            "📦 *Обновление мода*\n\n"
+            "Использование:\n"
+            "`/update <прямая_ссылка_на_jar>`\n\n"
+            "Примеры ссылок:\n"
+            "• Google Drive: включи общий доступ → скопируй ID файла →\n"
+            "  `https://drive.google.com/uc?export=download&id=ВАШ_ID`\n"
+            "• Dropbox: замени `?dl=0` на `?dl=1` в конце ссылки\n"
+            "• Любой прямой URL на `.jar` файл",
             parse_mode="Markdown"
         )
         return
 
-    doc = message.document
-    filename = doc.file_name or ""
+    url = args[1].strip()
+    status_msg = await message.reply("⏳ Скачиваю файл с сервера...")
 
-    if not filename.endswith(".jar"):
-        await message.reply(
-            f"⚠️ Файл `{filename}` — не `.jar`.\n"
-            "Отправь правильный файл мода, или /cancel для отмены.",
-            parse_mode="Markdown"
-        )
-        return
-
-    await state.clear()
-    status_msg = await message.reply("⏳ Загружаю файл на сервер...")
+    target_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mod.jar")
+    temp_path   = target_path + ".tmp"
 
     try:
-        target_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mod.jar")
-        temp_path   = target_path + ".tmp"
+        import requests as req
+        headers = {"User-Agent": "LuminaLauncher/1.0"}
 
-        # Скачиваем файл с серверов Telegram
-        file = await bot.get_file(doc.file_id)
-        await bot.download_file(file.file_path, destination=temp_path)
+        # Скачиваем по частям чтобы не грузить память
+        with req.get(url, headers=headers, stream=True, timeout=120) as r:
+            r.raise_for_status()
+            total = int(r.headers.get("content-length", 0))
+            downloaded = 0
+            with open(temp_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=1024 * 256):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
 
         file_size = os.path.getsize(temp_path)
         if file_size < 1000:
             os.remove(temp_path)
-            await status_msg.edit_text("❌ Файл слишком маленький, похоже что-то пошло не так.")
+            await status_msg.edit_text("❌ Файл слишком маленький или ссылка неверная.")
             return
 
         # Заменяем старый файл
@@ -392,7 +377,6 @@ async def handle_mod_file(message: types.Message, state: FSMContext):
         file_size_mb = file_size / (1024 * 1024)
         await status_msg.edit_text(
             f"✅ *Мод обновлён!*\n\n"
-            f"📄 Файл: `{filename}`\n"
             f"📦 Размер: `{file_size_mb:.2f} MB`\n"
             f"🔖 Новая версия: `{new_version}`\n\n"
             f"Все лаунчеры скачают обновление при следующем запуске!",
@@ -405,7 +389,11 @@ async def handle_mod_file(message: types.Message, state: FSMContext):
                 os.remove(temp_path)
             except Exception:
                 pass
-        await status_msg.edit_text(f"❌ Ошибка при сохранении файла: {e}")
+        await status_msg.edit_text(
+            f"❌ Ошибка при скачивании файла:\n`{e}`\n\n"
+            "Убедись что ссылка прямая и файл доступен без авторизации.",
+            parse_mode="Markdown"
+        )
 
 
 @dp.message(Command("cleanup"))
