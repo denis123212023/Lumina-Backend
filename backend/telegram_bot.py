@@ -313,7 +313,28 @@ async def process_key_password(message: types.Message, state: FSMContext):
         await message.answer(f"❌ {msg}")
 
 
-@dp.message(Command("update"))
+
+@dp.message(Command("resetpassword"))
+async def cmd_resetpassword(message: types.Message, state: FSMContext):
+    """Reset admin password — only for ADMIN_IDS"""
+    if message.from_user.id not in ADMIN_IDS:
+        await message.reply("❌ Доступ запрещен.")
+        return
+    await state.clear()
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_manager.db_path)
+        conn.execute("DELETE FROM settings WHERE key='admin_password'")
+        conn.commit()
+        conn.close()
+        await message.reply(
+            "✅ Пароль администратора сброшен!\n\n"
+            "Напиши /admin — бот попросит установить новый пароль."
+        )
+    except Exception as e:
+        await message.reply(f"❌ Ошибка: {e}")
+
+
 @dp.message(Command("update"))
 async def cmd_update(message: types.Message, state: FSMContext):
     """Update mod.jar by downloading from a direct URL"""
